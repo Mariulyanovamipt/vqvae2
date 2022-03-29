@@ -7,22 +7,27 @@ from torch.utils.data import DataLoader
 from torch.autograd import Variable
 from tqdm import tqdm
 from networks import VQVAE
-from utilities import ChestXrayHDF5, recon_image, save_loss_plots
+from utilities import ChestXrayHDF5, recon_image, recon_pydicom, save_loss_plots, PydicomDataset
 
 cuda = True if torch.cuda.is_available() else False
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--size', type=int, default=256)
-parser.add_argument('--n_epochs', type=int, default=5600)
+parser.add_argument('--n_epochs', type=int, default=100)
 parser.add_argument('--lr', type=float, default=3e-4)
 parser.add_argument('--first_stride', type=int, default=4, help="2, 4, 8, or 16")
 parser.add_argument('--second_stride', type=int, default=2, help="2, 4, 8, or 16")
 parser.add_argument('--embed_dim', type=int, default=64)
-parser.add_argument('--data_path', type=str, default='/home/aisinai/work/HDF5_datasets')
-parser.add_argument('--dataset', type=str, default='CheXpert', help="CheXpert or mimic")
+#parser.add_argument('--data_path', type=str, default='/home/aisinai/work/HDF5_datasets')
+parser.add_argument('--data_path', type=str, default='C:/Users/User/Desktop/philips/vqvae2/dataset_MY/train_init')
+#MY
+parser.add_argument('--test_data_path', type=str, default='C:/Users/User/Desktop/philips/vqvae2/dataset_MY/test_init')
+#parser.add_argument('--dataset', type=str, default='CheXpert', help="CheXpert or mimic")
+parser.add_argument('--dataset', type=str, default='MY', help="CheXpert or mimic")
 parser.add_argument('--view', type=str, default='frontal', help="frontal or lateral")
-parser.add_argument('--save_path', type=str, default='/home/aisinai/work/VQ-VAE2/20200820/vq_vae')
+#parser.add_argument('--save_path', type=str, default='/home/aisinai/work/VQ-VAE2/20200820/vq_vae')
+parser.add_argument('--save_path', type=str, default='C:/Users/User/Desktop/philips/vqvae2/results')
 parser.add_argument('--train_run', type=str, default='0')
 args = parser.parse_args()
 torch.manual_seed(816)
@@ -37,15 +42,23 @@ with open(f'{save_path}/args.txt', 'w') as f:
         print(f'{key}: {vars(args)[key]}')
 
 dataloaders = {}
-dataloaders['train'] = DataLoader(ChestXrayHDF5(f'{args.data_path}/{args.dataset}_train_{args.size}_{args.view}_normalized.hdf5'),
+#dataloaders['train'] = DataLoader(ChestXrayHDF5(f'{args.data_path}/{args.dataset}_train_{args.size}_{args.view}_normalized.hdf5'),
+                                  #batch_size=128,
+                                  #shuffle=True,
+                                  #drop_last=True)
+#dataloaders['valid'] = DataLoader(ChestXrayHDF5(f'{args.data_path}/{args.dataset}_valid_{args.size}_{args.view}_normalized.hdf5'),
+                                  #batch_size=128,
+                                  #shuffle=True,
+                                  #drop_last=True)
+dataloaders['train'] = DataLoader(PydicomDataset(f'{args.data_path}'),
                                   batch_size=128,
                                   shuffle=True,
                                   drop_last=True)
-dataloaders['valid'] = DataLoader(ChestXrayHDF5(f'{args.data_path}/{args.dataset}_valid_{args.size}_{args.view}_normalized.hdf5'),
-                                  batch_size=128,
+dataloaders['valid'] = DataLoader(PydicomDataset(f'{args.test_data_path}'),
+                                  batch_size=4,
                                   shuffle=True,
                                   drop_last=True)
-for i, (img, targets) in enumerate(dataloaders['valid']):
+for i, img in enumerate(dataloaders['valid']):
     sample_img = Variable(img.type(Tensor))
     break
 
@@ -71,20 +84,23 @@ for epoch in range(args.n_epochs):
         latent_loss_weight = 0.25
         n_row = 5
         loader = tqdm(dataloaders[phase])
-        for i, (img, label) in enumerate(loader):
+        for i, img in enumerate(loader):
             img = Variable(img.type(Tensor))
             with torch.set_grad_enabled(phase == 'train'):
                 optimizer.zero_grad()
                 out, latent_loss = model(img)
                 recon_loss = criterion(out, img)
+                #print(type(recon_loss))
                 latent_loss = latent_loss.mean()
+                #print(type(latent_loss))
                 loss = recon_loss + latent_loss_weight * latent_loss
+                #print(type(loss))
                 if phase == 'train':
                     loss.backward()
                     optimizer.step()
-                    losses[0, epoch, :] = [loss, recon_loss, latent_loss]
+                    losses[0, epoch, :] = [loss.detach().numpy(), recon_loss.detach().numpy(), latent_loss.detach().numpy()]
                 else:
-                    losses[1, epoch, :] = [loss, recon_loss, latent_loss]
+                    losses[1, epoch, :] = [loss.detach().numpy(), recon_loss.detach().numpy(), latent_loss.detach().numpy()]
                 lr = optimizer.param_groups[0]['lr']
 
             loader.set_description((f'phase: {phase}; epoch: {epoch + 1}; total_loss: {loss.item():.5f}; '
@@ -92,7 +108,9 @@ for epoch in range(args.n_epochs):
                                     f'lr: {lr:.5f}'))
 
             if i % 10 == 0:
-                recon_image(n_row, sample_img, model, f'{save_path}', epoch, Tensor)
+                #recon_image(n_row, sample_img, model, f'{save_path}', epoch, Tensor)
+                #recon_pydicom(n_row, sample_img, model, f'{save_path}', epoch, Tensor)
+                recon_pydicom(n_row, sample_img, model, f'{save_path}', epoch, Tensor)
 
         save_loss_plots(args.n_epochs, epoch, losses, f'{save_path}')
     if (epoch + 1) % 10 == 0:

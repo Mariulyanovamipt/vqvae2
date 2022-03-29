@@ -11,7 +11,10 @@ from torch.autograd import Variable
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.utils import save_image
-from sklearn.metrics.ranking import roc_auc_score
+#from sklearn.metrics.ranking import roc_auc_score
+from sklearn.metrics import roc_auc_score
+import pydicom
+from pydicom import dcmread
 
 
 class ChestXrayHDF5(Dataset):
@@ -30,6 +33,28 @@ class ChestXrayHDF5(Dataset):
 
     def __len__(self):
         return self.hdf5_database["img"].shape[0]
+
+
+class PydicomDataset(Dataset):
+    def __init__(self, path):
+        self.img_filenames = [os.path.join(path, x) for x in os.listdir(path)]
+
+    def __getitem__(self, index, crop_size=64):
+        dicom_img = dcmread(self.img_filenames[index]).pixel_array  # numpy array img
+        #mean = 15397.0
+        #std = 11227.0
+        #img_normed = dicom_img / mean + std
+        img_normed = dicom_img/(np.max(dicom_img)-np.min(dicom_img))
+        img_torch = torch.from_numpy(img_normed)
+
+        transform_ = transforms.RandomCrop(crop_size)
+        img_cropped = transform_(img_torch)
+        #return transforms.ToTensor()(img_cropped)
+        return img_cropped.unsqueeze(0)
+
+    def __len__(self):
+        len_ = len(self.img_filenames)
+        return len_
 
 
 class CXRDataset(Dataset):
@@ -105,7 +130,7 @@ class CXRDataset(Dataset):
 def recon_image(n_row, original_img, model, save_path, epoch, Tensor):
     """Saves a grid of decoded / reconstructed digits."""
     model.eval()
-    original_img = original_img[0:n_row**2, :]
+    original_img = original_img[0:n_row ** 2, :]
     with torch.no_grad():
         out, _ = model(original_img)
 
@@ -121,6 +146,51 @@ def recon_image(n_row, original_img, model, save_path, epoch, Tensor):
                nrow=n_row, normalize=True, range=(0, 1))
     save_image(torch.cat([original_img, out], 0).data, f'{save_path}/sample/flat_{str(epoch + 1).zfill(4)}.png',
                nrow=n_row**2, normalize=True, range=(0, 1))
+    model.train()
+
+
+
+def recon_pydicom(n_row, original_img, model, save_path, epoch, Tensor):
+    """Saves a grid of decoded / reconstructed digits."""
+    model.eval()
+    original_img = original_img[0:n_row ** 2, :] #only n**2 images from batch if n**2=25, batch 128 than number is 25
+    with torch.no_grad():
+        out, _ = model(original_img)
+
+    # remove normalization
+    sq_out=out #.squeeze(0) #[1, 64, 64] -> [64, 64]
+    sq_original_img=original_img #.squeeze(0)
+    mean = 15397.0
+    std = 11227.0
+    max = 65535.0
+
+    img_orig = sq_original_img
+    out_final = sq_out
+    print('')
+    print('AAAAAAAAAAAAA', img_orig.data.shape, torch.max(img_orig.data))
+    print('AAAAAAAAAAAAA', out_final.shape, torch.max(out_final))
+    print('bbbbbbbkxkjgkexjx', torch.cat([img_orig, out_final], dim=0).data.shape, torch.max(torch.cat([img_orig, out_final], dim=0)) )
+
+    #out_final = out_final*255/(torch.max(out_final)-torch.min(out_final))
+    #img_orig = img_orig*255/(torch.max(img_orig)-torch.min(img_orig))
+
+    print('BBBBBBBBBBBB', img_orig.data.shape, torch.max(img_orig.data))
+    print('BBBBBBBBBBBB', out_final.shape, torch.max(out_final))
+
+    #img_orig = sq_original_img * std + mean
+    #out_final = sq_out * std + mean
+
+    #img_orig_255=img_orig*256/max
+    #out_255=out_final*256/max
+
+   #imwrite(rgb2gray(I1), f'{save_path}/sample/original', 'png');
+
+    save_image(img_orig.data, f'{save_path}/sample/original.png',
+               nrow=n_row, normalize=True)#, range=(0, 1))
+    save_image(out_final.data, f'{save_path}/sample/{str(epoch + 1).zfill(4)}.png',
+               nrow=n_row, normalize=True)#, range=(0, 1))
+    save_image(torch.cat([img_orig.data, out_final.data], dim=0).data, f'{save_path}/sample/flat_{str(epoch + 1).zfill(4)}.png',
+               nrow=n_row ** 2, normalize=True)#, range=(0, 1))
     model.train()
 
 

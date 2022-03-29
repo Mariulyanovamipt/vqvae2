@@ -195,7 +195,7 @@ class Decoder(nn.Module):
 
 
 class VQVAE(nn.Module):
-    def __init__(self, in_channel=3, channel=128, n_res_block=2, n_res_channel=32, embed_dim=64, n_embed=512, decay=0.99,
+    def __init__(self, in_channel=1, channel=128, n_res_block=2, n_res_channel=32, embed_dim=64, n_embed=512, decay=0.99,
                  first_stride=4, second_stride=2):
         super().__init__()
 
